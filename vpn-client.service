@@ -1,0 +1,21 @@
+#vpn client
+
+# Copyright [2023] [esuoyanyu]. All rights reserved.
+# Use of this source code is governed by a MIT-style
+# license that can be found in the LICENSE file.
+
+[Unit]
+Description=vpn client
+After=network.target
+
+[Service]
+Type=oneshot
+ExecStart=/home/chy/bin/vpn-client/vpn-client.sh connect
+ExecStop=/home/chy/bin/vpn-client/vpn-client.sh disconnect
+RemainAfterExit=yes
+TimeoutSec=4min
+Restart=on-failure
+SyslogIdentifier=VPN
+
+[Install]
+WantedBy=multi-user.target
