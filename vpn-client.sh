@@ -4,6 +4,8 @@
 # Use of this source code is governed by a MIT-style
 # license that can be found in the LICENSE file.
 
+NET_INTERFACE=enp1s0
+
 connect_vpn() {
 	# 1. connect VPN
 	ipsec up esuoyanyu
@@ -28,7 +30,7 @@ connect_vpn() {
 		try=$((try - 1))
 	done
 
-	logger -t 'VPN' "GATEWAY_DEFAULT=$GATEWAY_DEFAULT VPN_LOCAL_PUBLIC_IP=$VPN_LOCAL_PUBLIC_IP"
+	logger -t 'VPN' "VPN_LOCAL_PUBLIC_IP=$VPN_LOCAL_PUBLIC_IP"
 	if [ $try -eq 0 ]; then
 		logger -t 'VPN' "try = $try"
 		disconnect_vpn
@@ -42,9 +44,20 @@ connect_vpn() {
 		return 1
 	fi
 
+	logger -t 'VPN' "GATEWAY_DEFAULT=$GATEWAY_DEFAULT"
+
 	route add $VPN_SERVICE_PUBLIC_IP gw $GATEWAY_DEFAULT
 	route add $VPN_LOCAL_PUBLIC_IP gw $GATEWAY_DEFAULT
 	route add default dev ppp0
+
+	resolvectl default-route $NET_INTERFACE false
+	resolvectl default-route ppp0 true
+	while read line; do
+		name_service=$(echo $line | awk '{print $2; exit}')
+		resolvectl dns ppp0 $name_service
+		break
+	done < /etc/ppp/resolv.conf
+	resolvectl reset-statistics
 
 	logger -t 'VPN' "GATEWAY_DEFAULT=$GATEWAY_DEFAULT VPN_LOCAL_PUBLIC_IP=$VPN_LOCAL_PUBLIC_IP"
 	logger -t 'VPN' "connect vpn service success ret=$?"
@@ -53,6 +66,25 @@ connect_vpn() {
 }
 
 disconnect_vpn() {
+	# remove route
+	VPN_LOCAL_PUBLIC_IP=$(ip addr show | awk '/ppp0/ {find=1} find==1 && /inet/ {print $2; exit}')
+	VPN_SERVICE_PUBLIC_IP="119.28.135.58"
+	GATEWAY_DEFAULT=$(ip route | awk '{ if ($3 != "ppp0") { print $3; exit } }')
+
+	logger -t 'VPN' "disconnet GATEWAY_DEFAULT=$GATEWAY_DEFAULT VPN_LOCAL_PUBLIC_IP=$VPN_LOCAL_PUBLIC_IP"
+
+	is_exist_interface=$(ip show addr | grep -w ppp0)
+	if [ "$is_exist_interface" != "" ]; then
+		resolvectl default-route ppp0 false
+	fi
+	resolvectl default-route $NET_INTERFACE true
+	resolvectl dns $NET_INTERFACE $GATEWAY_DEFAULT
+	resolvectl reset-statistics
+
+	route del $VPN_SERVICE_PUBLIC_IP gw $GATEWAY_DEFAULT
+	route del $VPN_LOCAL_PUBLIC_IP gw $GATEWAY_DEFAULT
+	route del default dev ppp0
+
 	echo "d esuoyanyu" > /var/run/xl2tpd/l2tp-control
 	if [ $? -ne 0 ]; then
 		logger -t 'VPN' "l2tp disconnect fail"
